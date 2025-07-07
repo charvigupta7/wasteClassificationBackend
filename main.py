@@ -1,24 +1,26 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI
+from pydantic import BaseModel
 from PIL import Image
 import torch
-from transformers import AutoImageProcessor, AutoModelForImageClassification
 import io
+import base64
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 import torch.nn.functional as F
 
 app = FastAPI()
 
-# Load model and processor once
 processor = AutoImageProcessor.from_pretrained("watersplash/waste-classification")
 model = AutoModelForImageClassification.from_pretrained("watersplash/waste-classification")
 
-@app.post("/classify")
-async def classify_image(file: UploadFile = File(...)):
-    try:
-        # Read file content into memory
-        contents = await file.read()
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
+class ImageInput(BaseModel):
+    image_base64: str
 
-        # Preprocess and predict
+@app.post("/classify")
+async def classify_image(payload: ImageInput):
+    try:
+        image_data = base64.b64decode(payload.image_base64)
+        image = Image.open(io.BytesIO(image_data)).convert("RGB")
+
         inputs = processor(images=image, return_tensors="pt")
         with torch.no_grad():
             outputs = model(**inputs)
@@ -26,15 +28,16 @@ async def classify_image(file: UploadFile = File(...)):
             predicted_class_idx = logits.argmax(-1).item()
             label = model.config.id2label[predicted_class_idx]
 
-            # Optional: confidence score
             probs = F.softmax(logits, dim=-1)
             confidence = probs[0][predicted_class_idx].item()
 
         return {
             "label": label,
-            "confidence": round(confidence, 4),
-            "filename": file.filename
+            "confidence": round(confidence, 4)
         }
 
     except Exception as e:
-        return {"error": "Failed to classify image", "details": str(e)}
+        return {
+            "status": "error",
+            "message": str(e)
+        }
