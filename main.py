@@ -11,10 +11,9 @@ from transformers import AutoImageProcessor, AutoModelForImageClassification, Au
 app = FastAPI()
 
 # Load model and processor at startup
-llm_tokenizer = AutoTokenizer.from_pretrained("HuggingFaceH4/zephyr-7b-beta")
-llm_model = AutoModelForCausalLM.from_pretrained("HuggingFaceH4/zephyr-7b-beta", device_map="auto")
+llm_tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
+llm_model = AutoModelForCausalLM.from_pretrained("distilgpt2")
 llm_pipe = pipeline("text-generation", model=llm_model, tokenizer=llm_tokenizer)
-
 processor = AutoImageProcessor.from_pretrained("watersplash/waste-classification")
 model = AutoModelForImageClassification.from_pretrained("watersplash/waste-classification")
 
