@@ -5,11 +5,15 @@ import torch
 import io
 import base64
 import torch.nn.functional as F
-from transformers import AutoImageProcessor, AutoModelForImageClassification
+from transformers import AutoImageProcessor, AutoModelForImageClassification, AutoTokenizer, AutoModelForCausalLM, pipeline
+
 
 app = FastAPI()
 
 # Load model and processor at startup
+llm_tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct")
+llm_model = AutoModelForCausalLM.from_pretrained("mistralai/Mistral-7B-Instruct", device_map="auto")
+llm_pipe = pipeline("text-generation", model=llm_model, tokenizer=llm_tokenizer, max_new_tokens=256)
 processor = AutoImageProcessor.from_pretrained("watersplash/waste-classification")
 model = AutoModelForImageClassification.from_pretrained("watersplash/waste-classification")
 
@@ -56,8 +60,15 @@ async def classify_image(payload: ImageInput):
 async def generate_summary(payload: ImageInput):
     try:
         label, confidence = classify_base64_image(payload.image_base64)
-        summary = f"The uploaded waste item is classified as '{label}' with {confidence*100:.2f}% confidence."
-        return {"summary": summary, "label": label, "confidence": confidence}
+        
+        prompt = f"The image contains waste identified as '{label}' with {confidence*100:.2f}% confidence. Write a concise summary of this classification."
+        llm_response = llm_pipe(prompt)[0]['generated_text']
+
+        return {
+            "summary": llm_response.strip(),
+            "label": label,
+            "confidence": confidence
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -66,17 +77,14 @@ async def generate_summary(payload: ImageInput):
 async def generate_recommendation(payload: ImageInput):
     try:
         label, confidence = classify_base64_image(payload.image_base64)
-        normalized_label = label.strip().title()  # e.g., "plastic" -> "Plastic"
-        info = WASTE_KNOWLEDGE.get(normalized_label, {
-            "type": "Unknown",
-            "action": "No specific advice. Refer to local waste guidelines."
-        })
-        
+        prompt = f"The waste is classified as '{label}' with {confidence*100:.2f}% confidence. What type of waste is it (biodegradable or non-biodegradable), and how should it be disposed of?"
+
+        llm_response = llm_pipe(prompt)[0]['generated_text']
+
         return {
             "label": label,
             "confidence": confidence,
-            "waste_type": info["type"],
-            "recommended_action": info["action"]
+            "recommendation": llm_response.strip()
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
