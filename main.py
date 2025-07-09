@@ -105,20 +105,12 @@ def generate_pie_chart(input: ImageInput):
           datasets: [{{
             data: {data_js},
             backgroundColor: [
-              'rgba(243, 156, 18, 0.6)',
-              'rgba(231, 76, 60, 0.6)',
-              'rgba(52, 152, 219, 0.6)',
-              'rgba(46, 204, 113, 0.6)',
-              'rgba(155, 89, 182, 0.6)',
-              'rgba(241, 196, 15, 0.6)'
+              '#4CAF50',
+              '#e0e0e0'
             ],
             borderColor: [
-              'rgba(243, 156, 18, 1)',
-              'rgba(231, 76, 60, 1)',
-              'rgba(52, 152, 219, 1)',
-              'rgba(46, 204, 113, 1)',
-              'rgba(155, 89, 182, 1)',
-              'rgba(241, 196, 15, 1)'
+              '#388E3C',
+              '#bdbdbd'
             ],
             borderWidth: 1
           }}]
