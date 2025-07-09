@@ -27,7 +27,7 @@ def classify_image(input: ImageInput):
             outputs = model(**inputs)
         probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
 
-        topk = torch.topk(probs, k=3)  # Top 3 predictions
+        topk = torch.topk(probs, k=3)
         labels = model.config.id2label
 
         results = [
@@ -46,14 +46,12 @@ def generate_pie_chart(input: ImageInput):
         image_data = base64.b64decode(input.image_base64)
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
 
-        # Run classification
         inputs = processor(images=image, return_tensors="pt")
         with torch.no_grad():
             outputs = model(**inputs)
         probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
         labels = model.config.id2label
 
-        # Get top 5 predictions for pie chart
         topk = torch.topk(probs, k=5)
         filtered = [
             {"label": labels[i.item()], "confidence": round(p.item(), 3)}
@@ -76,6 +74,7 @@ def generate_pie_chart(input: ImageInput):
         labels_js = [item["label"] for item in composition]
         data_js = [item["percentage"] for item in composition]
 
+        # Build the chart HTML
         html = f"""
         <html>
         <head>
@@ -83,3 +82,48 @@ def generate_pie_chart(input: ImageInput):
         </head>
         <body>
             <h3>Waste Composition (Top Predictions)</h3>
+            <canvas id="wasteChart" width="400" height="400"></canvas>
+            <script>
+                const ctx = document.getElementById('wasteChart').getContext('2d');
+                new Chart(ctx, {{
+                    type: 'pie',
+                    data: {{
+                        labels: {labels_js},
+                        datasets: [{{
+                            label: 'Waste Composition',
+                            data: {data_js},
+                            backgroundColor: [
+                                'rgba(255, 99, 132, 0.6)',
+                                'rgba(54, 162, 235, 0.6)',
+                                'rgba(255, 206, 86, 0.6)',
+                                'rgba(75, 192, 192, 0.6)',
+                                'rgba(153, 102, 255, 0.6)'
+                            ],
+                            borderColor: [
+                                'rgba(255, 99, 132, 1)',
+                                'rgba(54, 162, 235, 1)',
+                                'rgba(255, 206, 86, 1)',
+                                'rgba(75, 192, 192, 1)',
+                                'rgba(153, 102, 255, 1)'
+                            ],
+                            borderWidth: 1
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        plugins: {{
+                            legend: {{
+                                position: 'bottom'
+                            }}
+                        }}
+                    }}
+                }});
+            </script>
+        </body>
+        </html>
+        """
+
+        return {"html": html}
+
+    except Exception as e:
+        return {"error": str(e)}
