@@ -1,58 +1,53 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-import base64
-import io
+import requests
 from PIL import Image
+import io
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
+import json
 
 app = FastAPI()
 
-# Define waste category labels
 LABELS = ["plastic", "metal", "glass", "paper", "organic", "e-waste"]
 
-# Preprocessing pipeline
 processor = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
 ])
 
-# Load and modify MobileNetV2 for multi-label classification
 mobilenet = models.mobilenet_v2(pretrained=True)
 mobilenet.classifier = nn.Sequential(
     nn.Dropout(0.3),
     nn.Linear(mobilenet.last_channel, len(LABELS)),
-    nn.Sigmoid()  # For multi-label classification
+    nn.Sigmoid()
 )
 mobilenet.eval()
 
-# Define input schema
 class ImageInput(BaseModel):
-    image_base64: str
+    image_url: str
+
+def load_image_from_url(url):
+    response = requests.get(url)
+    image = Image.open(io.BytesIO(response.content)).convert("RGB")
+    return processor(image).unsqueeze(0)
 
 @app.post("/classify")
 def classify_image(input: ImageInput):
     try:
-        # Decode base64 image
-        image_data = base64.b64decode(input.image_base64)
-        image = Image.open(io.BytesIO(image_data)).convert("RGB")
-
-        # Preprocess and predict
-        input_tensor = processor(image).unsqueeze(0)
+        input_tensor = load_image_from_url(input.image_url)
         with torch.no_grad():
             outputs = mobilenet(input_tensor)
             probs = outputs[0].cpu().numpy()
 
-        # Use a threshold to select active labels
         threshold = 0.3
         results = [
             {"label": LABELS[i], "confidence": round(float(prob), 3)}
             for i, prob in enumerate(probs)
             if prob > threshold
         ]
-
         return {"predictions": results}
 
     except Exception as e:
@@ -61,10 +56,7 @@ def classify_image(input: ImageInput):
 @app.post("/wastechart")
 def generate_pie_chart(input: ImageInput):
     try:
-        image_data = base64.b64decode(input.image_base64)
-        image = Image.open(io.BytesIO(image_data)).convert("RGB")
-
-        input_tensor = processor(image).unsqueeze(0)
+        input_tensor = load_image_from_url(input.image_url)
         with torch.no_grad():
             outputs = mobilenet(input_tensor)
             probs = outputs[0].cpu().numpy()
@@ -88,58 +80,63 @@ def generate_pie_chart(input: ImageInput):
             for item in filtered
         ]
 
-        labels_js = [item["label"] for item in composition]
-        data_js = [item["percentage"] for item in composition]
+        labels_js = json.dumps([item["label"] for item in composition])
+        data_js = json.dumps([item["percentage"] for item in composition])
 
         html = f"""
-        <html>
-        <head>
-            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        </head>
-        <body>
-            <h3>Waste Composition (Multi-label)</h3>
-            <canvas id="wasteChart" width="400" height="400"></canvas>
-            <script>
-                const ctx = document.getElementById('wasteChart').getContext('2d');
-                new Chart(ctx, {{
-                    type: 'pie',
-                    data: {{
-                        labels: {labels_js},
-                        datasets: [{{
-                            label: 'Waste Composition',
-                            data: {data_js},
-                            backgroundColor: [
-                                'rgba(255, 99, 132, 0.6)',
-                                'rgba(54, 162, 235, 0.6)',
-                                'rgba(255, 206, 86, 0.6)',
-                                'rgba(75, 192, 192, 0.6)',
-                                'rgba(153, 102, 255, 0.6)',
-                                'rgba(255, 159, 64, 0.6)'
-                            ],
-                            borderColor: [
-                                'rgba(255, 99, 132, 1)',
-                                'rgba(54, 162, 235, 1)',
-                                'rgba(255, 206, 86, 1)',
-                                'rgba(75, 192, 192, 1)',
-                                'rgba(153, 102, 255, 1)',
-                                'rgba(255, 159, 64, 1)'
-                            ],
-                            borderWidth: 1
-                        }}]
-                    }},
-                    options: {{
-                        responsive: true,
-                        plugins: {{
-                            legend: {{
-                                position: 'bottom'
-                            }}
-                        }}
-                    }}
-                }});
-            </script>
-        </body>
-        </html>
-        """
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Waste Composition Pie Chart</title>
+  <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+</head>
+<body>
+  <div style=\"max-width:400px; margin: 0 auto;\">
+    <h3>Waste Composition Pie Chart</h3>
+    <canvas id=\"wasteChart\" width=\"400\" height=\"400\"></canvas>
+  </div>
+  <script>
+    window.addEventListener('DOMContentLoaded', function() {{
+      const ctx = document.getElementById('wasteChart').getContext('2d');
+      new Chart(ctx, {{
+        type: 'pie',
+        data: {{
+          labels: {labels_js},
+          datasets: [{{
+            data: {data_js},
+            backgroundColor: [
+              'rgba(243, 156, 18, 0.6)',
+              'rgba(231, 76, 60, 0.6)',
+              'rgba(52, 152, 219, 0.6)',
+              'rgba(46, 204, 113, 0.6)',
+              'rgba(155, 89, 182, 0.6)',
+              'rgba(241, 196, 15, 0.6)'
+            ],
+            borderColor: [
+              'rgba(243, 156, 18, 1)',
+              'rgba(231, 76, 60, 1)',
+              'rgba(52, 152, 219, 1)',
+              'rgba(46, 204, 113, 1)',
+              'rgba(155, 89, 182, 1)',
+              'rgba(241, 196, 15, 1)'
+            ],
+            borderWidth: 1
+          }}]
+        }},
+        options: {{
+          responsive: true,
+          plugins: {{
+            legend: {{
+              position: 'bottom'
+            }}
+          }}
+        }}
+      }});
+    }});
+  </script>
+</body>
+</html>
+"""
 
         return {"html": html}
 
