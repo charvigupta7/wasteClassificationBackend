@@ -4,57 +4,38 @@ import base64
 import io
 from PIL import Image
 import torch
-from transformers import AutoModelForImageClassification, AutoImageProcessor, MobileNetV2ForImageClassification
+from transformers import AutoImageProcessor, MobileNetV2ForImageClassification
 
 app = FastAPI()
 
 # Load model and processor
-processor = AutoImageProcessor.from_pretrained("google/mobilenet_v2_1.0_224")
-model = MobileNetV2ForImageClassification.from_pretrained("google/mobilenet_v2_1.0_224")
+processor = AutoImageProcessor.from_pretrained("akmalia31/trash-classification-cnn-mobilnetv2")
+model = MobileNetV2ForImageClassification.from_pretrained("akmalia31/trash-classification-cnn-mobilnetv2")
 
 class ImageInput(BaseModel):
     image_base64: str
 
-@app.post("/multiclassify_composition")
-def classify_and_estimate_composition(input: ImageInput):
+@app.post("/classify")
+def classify_image(input: ImageInput):
     try:
-        # Decode base64 image
         image_data = base64.b64decode(input.image_base64)
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
 
-        # Preprocess image
+        # Process and predict
         inputs = processor(images=image, return_tensors="pt")
-
-        # Inference
         with torch.no_grad():
             outputs = model(**inputs)
+        probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
 
-        # Get multi-label probabilities
-        probs = torch.sigmoid(outputs.logits)[0]
+        topk = torch.topk(probs, k=3)  # Top 3 predictions
         labels = model.config.id2label
 
-        # Threshold and filter results
-        raw_results = [
-            {"label": labels[i], "confidence": p.item()}
-            for i, p in enumerate(probs)
-            if p.item() > 0.2  # Adjustable threshold
+        results = [
+            {"label": labels[idx.item()], "confidence": round(score.item(), 3)}
+            for idx, score in zip(topk.indices, topk.values)
         ]
 
-        # Normalize confidences to percentages for composition
-        total_conf = sum(item["confidence"] for item in raw_results)
-        if total_conf == 0:
-            return {"composition": []}
-
-        composition = [
-            {
-                "label": item["label"],
-                "confidence": round(item["confidence"], 3),
-                "percentage": round((item["confidence"] / total_conf) * 100, 1)
-            }
-            for item in raw_results
-        ]
-
-        return {"composition": composition}
+        return {"top_predictions": results}
 
     except Exception as e:
         return {"error": str(e)}
@@ -69,21 +50,21 @@ def generate_pie_chart(input: ImageInput):
         inputs = processor(images=image, return_tensors="pt")
         with torch.no_grad():
             outputs = model(**inputs)
-
-        probs = torch.sigmoid(outputs.logits)[0]
+        probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
         labels = model.config.id2label
 
+        # Get top 5 predictions for pie chart
+        topk = torch.topk(probs, k=5)
         filtered = [
-            {"label": labels[i], "confidence": p.item()}
-            for i, p in enumerate(probs)
-            if p.item() > 0.2
+            {"label": labels[i.item()], "confidence": round(p.item(), 3)}
+            for i, p in zip(topk.indices, topk.values)
+            if p.item() > 0.01
         ]
 
-        total = sum(item["confidence"] for item in filtered)
-        if total == 0:
+        if not filtered:
             return {"html": "<p>No waste types detected with sufficient confidence.</p>"}
 
-        # Calculate percentages
+        total = sum(item["confidence"] for item in filtered)
         composition = [
             {
                 "label": item["label"],
@@ -92,7 +73,6 @@ def generate_pie_chart(input: ImageInput):
             for item in filtered
         ]
 
-        # Generate HTML pie chart using Chart.js
         labels_js = [item["label"] for item in composition]
         data_js = [item["percentage"] for item in composition]
 
@@ -102,36 +82,4 @@ def generate_pie_chart(input: ImageInput):
             <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         </head>
         <body>
-            <h3>Waste Composition Analysis</h3>
-            <canvas id="wasteChart" width="400" height="400"></canvas>
-            <script>
-                const ctx = document.getElementById('wasteChart').getContext('2d');
-                new Chart(ctx, {{
-                    type: 'pie',
-                    data: {{
-                        labels: {labels_js},
-                        datasets: [{{
-                            data: {data_js},
-                            backgroundColor: [
-                                '#36A2EB',
-                                '#FF6384',
-                                '#FFCE56',
-                                '#8BC34A',
-                                '#9C27B0',
-                                '#FF9800'
-                            ]
-                        }}]
-                    }},
-                    options: {{
-                        responsive: true
-                    }}
-                }});
-            </script>
-        </body>
-        </html>
-        """
-
-        return {"html": html}
-
-    except Exception as e:
-        return {"error": str(e)}
+            <h3>Waste Composition (Top Predictions)</h3>
