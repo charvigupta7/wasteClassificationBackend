@@ -9,7 +9,14 @@ from transformers import AutoImageProcessor, MobileNetV2ForImageClassification
 app = FastAPI()
 
 # Load model and processor
-processor = AutoImageProcessor.from_pretrained("akmalia31/trash-classification-cnn-mobilnetv2")
+from torchvision import transforms
+
+processor = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
+])
+
 model = MobileNetV2ForImageClassification.from_pretrained("akmalia31/trash-classification-cnn-mobilnetv2")
 
 class ImageInput(BaseModel):
