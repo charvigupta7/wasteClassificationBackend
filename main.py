@@ -4,13 +4,13 @@ import base64
 import io
 from PIL import Image
 import torch
-from transformers import AutoModelForImageClassification, AutoImageProcessor
+from transformers import AutoModelForImageClassification, AutoImageProcessor, MobileNetV2ForImageClassification
 
 app = FastAPI()
 
 # Load model and processor
-processor = AutoImageProcessor.from_pretrained("prithivMLmods/Augmented-Waste-Classifier-SigLIP2")
-model = AutoModelForImageClassification.from_pretrained("prithivMLmods/Augmented-Waste-Classifier-SigLIP2")
+processor = AutoImageProcessor.from_pretrained("google/mobilenet_v2_1.0_224")
+model = MobileNetV2ForImageClassification.from_pretrained("google/mobilenet_v2_1.0_224")
 
 class ImageInput(BaseModel):
     image_base64: str
