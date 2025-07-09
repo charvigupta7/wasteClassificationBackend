@@ -1,90 +1,137 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+import base64
+import io
 from PIL import Image
 import torch
-import io
-import base64
-import torch.nn.functional as F
-from transformers import AutoImageProcessor, AutoModelForImageClassification, AutoTokenizer, AutoModelForCausalLM, pipeline
-
+from transformers import AutoModelForImageClassification, AutoImageProcessor
 
 app = FastAPI()
 
-# Load model and processor at startup
-llm_tokenizer = AutoTokenizer.from_pretrained("sshleifer/tiny-gpt2")
-llm_model = AutoModelForCausalLM.from_pretrained("sshleifer/tiny-gpt2")
-llm_pipe = pipeline("text-generation", model=llm_model, tokenizer=llm_tokenizer)
-processor = AutoImageProcessor.from_pretrained("watersplash/waste-classification")
-model = AutoModelForImageClassification.from_pretrained("watersplash/waste-classification")
+# Load model and processor
+processor = AutoImageProcessor.from_pretrained("prithivMLmods/Augmented-Waste-Classifier-SigLIP2")
+model = AutoModelForImageClassification.from_pretrained("prithivMLmods/Augmented-Waste-Classifier-SigLIP2")
 
-# ------------------- Input Schema -------------------
 class ImageInput(BaseModel):
     image_base64: str
 
-# ------------------- Waste Knowledge Base -------------------
-WASTE_KNOWLEDGE = {
-    "Plastic": {"type": "Non-Biodegradable", "action": "Recycle at designated centers or reuse."},
-    "Food waste": {"type": "Biodegradable", "action": "Compost or dispose in green bin."},
-    "Paper": {"type": "Biodegradable", "action": "Recycle or compost if not contaminated."},
-    "Metal": {"type": "Non-Biodegradable", "action": "Recycle at authorized metal scrap vendors."},
-    "E-waste": {"type": "Non-Biodegradable", "action": "Dispose at e-waste collection centers."},
-    "Glass": {"type": "Non-Biodegradable", "action": "Recycle if not broken; else, dispose safely."},
-    "Cardboard": {"type": "Biodegradable", "action": "Recycle or compost."}
-}
-
-# ------------------- Classification Utility -------------------
-def classify_base64_image(base64_str):
-    image_data = base64.b64decode(base64_str)
-    image = Image.open(io.BytesIO(image_data)).convert("RGB")
-    inputs = processor(images=image, return_tensors="pt")
-    with torch.no_grad():
-        outputs = model(**inputs)
-        logits = outputs.logits
-        predicted_class_idx = logits.argmax(-1).item()
-        label = model.config.id2label[predicted_class_idx]
-        probs = F.softmax(logits, dim=-1)
-        confidence = probs[0][predicted_class_idx].item()
-    return label, round(confidence, 4)
-
-# ------------------- /classify -------------------
-@app.post("/classify")
-async def classify_image(payload: ImageInput):
+@app.post("/multiclassify_composition")
+def classify_and_estimate_composition(input: ImageInput):
     try:
-        label, confidence = classify_base64_image(payload.image_base64)
-        return {"label": label, "confidence": confidence}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # Decode base64 image
+        image_data = base64.b64decode(input.image_base64)
+        image = Image.open(io.BytesIO(image_data)).convert("RGB")
 
-# ------------------- /summary -------------------
-@app.post("/summary")
-async def generate_summary(payload: ImageInput):
+        # Preprocess image
+        inputs = processor(images=image, return_tensors="pt")
+
+        # Inference
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        # Get multi-label probabilities
+        probs = torch.sigmoid(outputs.logits)[0]
+        labels = model.config.id2label
+
+        # Threshold and filter results
+        raw_results = [
+            {"label": labels[i], "confidence": p.item()}
+            for i, p in enumerate(probs)
+            if p.item() > 0.2  # Adjustable threshold
+        ]
+
+        # Normalize confidences to percentages for composition
+        total_conf = sum(item["confidence"] for item in raw_results)
+        if total_conf == 0:
+            return {"composition": []}
+
+        composition = [
+            {
+                "label": item["label"],
+                "confidence": round(item["confidence"], 3),
+                "percentage": round((item["confidence"] / total_conf) * 100, 1)
+            }
+            for item in raw_results
+        ]
+
+        return {"composition": composition}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/wastechart")
+def generate_pie_chart(input: ImageInput):
     try:
-        label, confidence = classify_base64_image(payload.image_base64)
-        
-        prompt = f"The image contains waste identified as '{label}' with {confidence*100:.2f}% confidence. Write a concise summary of this classification."
-        llm_response = llm_pipe(prompt)[0]['generated_text']
+        image_data = base64.b64decode(input.image_base64)
+        image = Image.open(io.BytesIO(image_data)).convert("RGB")
 
-        return {
-            "summary": llm_response.strip(),
-            "label": label,
-            "confidence": confidence
-        }
+        # Run classification
+        inputs = processor(images=image, return_tensors="pt")
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        probs = torch.sigmoid(outputs.logits)[0]
+        labels = model.config.id2label
+
+        filtered = [
+            {"label": labels[i], "confidence": p.item()}
+            for i, p in enumerate(probs)
+            if p.item() > 0.2
+        ]
+
+        total = sum(item["confidence"] for item in filtered)
+        if total == 0:
+            return {"html": "<p>No waste types detected with sufficient confidence.</p>"}
+
+        # Calculate percentages
+        composition = [
+            {
+                "label": item["label"],
+                "percentage": round((item["confidence"] / total) * 100, 2)
+            }
+            for item in filtered
+        ]
+
+        # Generate HTML pie chart using Chart.js
+        labels_js = [item["label"] for item in composition]
+        data_js = [item["percentage"] for item in composition]
+
+        html = f"""
+        <html>
+        <head>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        </head>
+        <body>
+            <h3>Waste Composition Analysis</h3>
+            <canvas id="wasteChart" width="400" height="400"></canvas>
+            <script>
+                const ctx = document.getElementById('wasteChart').getContext('2d');
+                new Chart(ctx, {{
+                    type: 'pie',
+                    data: {{
+                        labels: {labels_js},
+                        datasets: [{{
+                            data: {data_js},
+                            backgroundColor: [
+                                '#36A2EB',
+                                '#FF6384',
+                                '#FFCE56',
+                                '#8BC34A',
+                                '#9C27B0',
+                                '#FF9800'
+                            ]
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true
+                    }}
+                }});
+            </script>
+        </body>
+        </html>
+        """
+
+        return {"html": html}
+
     except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-# ------------------- /recommendation -------------------
-@app.post("/recommendation")
-async def generate_recommendation(payload: ImageInput):
-    try:
-        label, confidence = classify_base64_image(payload.image_base64)
-        prompt = f"The waste is classified as '{label}' with {confidence*100:.2f}% confidence. What type of waste is it (biodegradable or non-biodegradable), and how should it be disposed of?"
-
-        llm_response = llm_pipe(prompt)[0]['generated_text']
-
-        return {
-            "label": label,
-            "confidence": confidence,
-            "recommendation": llm_response.strip()
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"error": str(e)}
