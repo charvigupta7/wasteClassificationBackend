@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 import requests
 from PIL import Image
 import io
@@ -32,8 +32,14 @@ mobilenet.eval()
 
 # Define input schema
 class ImageInput(BaseModel):
-    predictions: List[Dict[str, Union[str, float]]]
+    predictions: Optional[List[Dict[str, Union[str, float]]]] = None
     image_url: Optional[str] = None
+
+    @model_validator(mode="after")
+    def check_one_required(cls, values):
+        if not values.predictions and not values.image_url:
+            raise ValueError("Either 'predictions' or 'image_url' must be provided.")
+        return values
 
 def load_image_from_url(url):
     response = requests.get(url)
