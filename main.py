@@ -53,8 +53,9 @@ def classify_image(input: ImageInput):
     except Exception as e:
         return {"error": str(e)}
 
-@app.post("/wastechart")
-def generate_pie_chart(input: ImageInput):
+
+@app.post("/wastecomposition")
+def generate_waste_composition(input: ImageInput):
     try:
         input_tensor = load_image_from_url(input.image_url)
         with torch.no_grad():
@@ -69,7 +70,10 @@ def generate_pie_chart(input: ImageInput):
         ]
 
         if not filtered:
-            return {"html": "<p>No waste types detected with sufficient confidence.</p>"}
+            return {
+                "labels": [],
+                "percentages": []
+            }
 
         total = sum(item["confidence"] for item in filtered)
         composition = [
@@ -80,57 +84,94 @@ def generate_pie_chart(input: ImageInput):
             for item in filtered
         ]
 
-        labels_js = json.dumps([item["label"] for item in composition])
-        data_js = json.dumps([item["percentage"] for item in composition])
+        labels = [item["label"] for item in composition]
+        percentages = [item["percentage"] for item in composition]
 
-        html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Waste Composition Pie Chart</title>
-  <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
-</head>
-<body>
-  <div style=\"max-width:400px; margin: 0 auto;\">
-    <h3>Waste Composition Pie Chart</h3>
-    <canvas id=\"wasteChart\" width=\"400\" height=\"400\"></canvas>
-  </div>
-  <script>
-    window.addEventListener('DOMContentLoaded', function() {{
-      const ctx = document.getElementById('wasteChart').getContext('2d');
-      new Chart(ctx, {{
-        type: 'pie',
-        data: {{
-          labels: {labels_js},
-          datasets: [{{
-            data: {data_js},
-            backgroundColor: [
-              '#4CAF50',
-              '#e0e0e0'
-            ],
-            borderColor: [
-              '#388E3C',
-              '#bdbdbd'
-            ],
-            borderWidth: 1
-          }}]
-        }},
-        options: {{
-          responsive: true,
-          plugins: {{
-            legend: {{
-              position: 'bottom'
-            }}
-          }}
-        }}
-      }});
-    }});
-  </script>
-</body>
-</html>
-"""
-
-        return {"html": html}
+        return {
+            "labels": labels,
+            "percentages": percentages
+        }
 
     except Exception as e:
         return {"error": str(e)}
+# @app.post("/wastechart")
+# def generate_pie_chart(input: ImageInput):
+#     try:
+#         input_tensor = load_image_from_url(input.image_url)
+#         with torch.no_grad():
+#             outputs = mobilenet(input_tensor)
+#             probs = outputs[0].cpu().numpy()
+
+#         threshold = 0.1
+#         filtered = [
+#             {"label": LABELS[i], "confidence": round(float(p), 3)}
+#             for i, p in enumerate(probs)
+#             if p > threshold
+#         ]
+
+#         if not filtered:
+#             return {"html": "<p>No waste types detected with sufficient confidence.</p>"}
+
+#         total = sum(item["confidence"] for item in filtered)
+#         composition = [
+#             {
+#                 "label": item["label"],
+#                 "percentage": round((item["confidence"] / total) * 100, 2)
+#             }
+#             for item in filtered
+#         ]
+
+#         labels_js = json.dumps([item["label"] for item in composition])
+#         data_js = json.dumps([item["percentage"] for item in composition])
+
+#         html = f"""
+# <!DOCTYPE html>
+# <html>
+# <head>
+#   <title>Waste Composition Pie Chart</title>
+#   <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+# </head>
+# <body>
+#   <div style=\"max-width:400px; margin: 0 auto;\">
+#     <h3>Waste Composition Pie Chart</h3>
+#     <canvas id=\"wasteChart\" width=\"400\" height=\"400\"></canvas>
+#   </div>
+#   <script>
+#     window.addEventListener('DOMContentLoaded', function() {{
+#       const ctx = document.getElementById('wasteChart').getContext('2d');
+#       new Chart(ctx, {{
+#         type: 'pie',
+#         data: {{
+#           labels: {labels_js},
+#           datasets: [{{
+#             data: {data_js},
+#             backgroundColor: [
+#               '#4CAF50',
+#               '#e0e0e0'
+#             ],
+#             borderColor: [
+#               '#388E3C',
+#               '#bdbdbd'
+#             ],
+#             borderWidth: 1
+#           }}]
+#         }},
+#         options: {{
+#           responsive: true,
+#           plugins: {{
+#             legend: {{
+#               position: 'bottom'
+#             }}
+#           }}
+#         }}
+#       }});
+#     }});
+#   </script>
+# </body>
+# </html>
+# """
+
+#         return {"html": html}
+
+#     except Exception as e:
+#         return {"error": str(e)}
