@@ -10,14 +10,17 @@ import json
 
 app = FastAPI()
 
+# Define waste category labels
 LABELS = ["plastic", "metal", "glass", "paper", "organic", "e-waste"]
 
+# Preprocessing pipeline
 processor = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
 ])
 
+# Load and modify MobileNetV2 for multi-label classification
 mobilenet = models.mobilenet_v2(pretrained=True)
 mobilenet.classifier = nn.Sequential(
     nn.Dropout(0.3),
@@ -26,6 +29,7 @@ mobilenet.classifier = nn.Sequential(
 )
 mobilenet.eval()
 
+# Define input schema
 class ImageInput(BaseModel):
     image_url: str
 
@@ -54,8 +58,8 @@ def classify_image(input: ImageInput):
         return {"error": str(e)}
 
 
-@app.post("/wastechart")
-def generate_pie_chart(input: ImageInput):
+@app.post("/wastecomposition")
+def generate_waste_composition(input: ImageInput):
     try:
         input_tensor = load_image_from_url(input.image_url)
         with torch.no_grad():
@@ -70,7 +74,10 @@ def generate_pie_chart(input: ImageInput):
         ]
 
         if not filtered:
-            return {"html": "<p>No waste types detected with sufficient confidence.</p>"}
+            return {
+                "labels": [],
+                "percentages": []
+            }
 
         total = sum(item["confidence"] for item in filtered)
         composition = [
@@ -81,57 +88,13 @@ def generate_pie_chart(input: ImageInput):
             for item in filtered
         ]
 
-        labels_js = json.dumps([item["label"] for item in composition])
-        data_js = json.dumps([item["percentage"] for item in composition])
+        labels = [item["label"] for item in composition]
+        percentages = [item["percentage"] for item in composition]
 
-        html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Waste Composition Pie Chart</title>
-  <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
-</head>
-<body>
-  <div style=\"max-width:400px; margin: 0 auto;\">
-    <h3>Waste Composition Pie Chart</h3>
-    <canvas id=\"wasteChart\" width=\"400\" height=\"400\"></canvas>
-  </div>
-  <script>
-    window.addEventListener('DOMContentLoaded', function() {{
-      const ctx = document.getElementById('wasteChart').getContext('2d');
-      new Chart(ctx, {{
-        type: 'pie',
-        data: {{
-          labels: {labels_js},
-          datasets: [{{
-            data: {data_js},
-            backgroundColor: [
-              '#4CAF50',
-              '#e0e0e0'
-            ],
-            borderColor: [
-              '#388E3C',
-              '#bdbdbd'
-            ],
-            borderWidth: 1
-          }}]
-        }},
-        options: {{
-          responsive: true,
-          plugins: {{
-            legend: {{
-              position: 'bottom'
-            }}
-          }}
-        }}
-      }});
-    }});
-  </script>
-</body>
-</html>
-"""
-
-        return {"html": html}
+        return {
+            "labels": labels,
+            "percentages": percentages
+        }
 
     except Exception as e:
         return {"error": str(e)}
