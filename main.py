@@ -27,7 +27,7 @@ class ImageInput(BaseModel):
         return values
 
 # --- Roboflow waste composition function
-def get_waste_composition_from_roboflow(image_url: str, api_key: str):
+def infer_roboflow(image_url: str, api_key: str):
     endpoint = f"https://detect.roboflow.com/taco-trash-annotations-in-context/16?api_key={api_key}"
 
     response = requests.get(image_url)
@@ -38,40 +38,60 @@ def get_waste_composition_from_roboflow(image_url: str, api_key: str):
         files={"file": image_bytes},
         data={"confidence": "0.25", "overlap": "0.2"}
     )
-    result = upload_response.json()
+    return upload_response.json()
 
-    boxes = result.get("predictions", [])
-    areas_by_class = defaultdict(float)
+# --- Classify waste types (just labels, no area calc)
+@app.post("/classify")
+def classify_waste_types(input: ImageInput):
+    try:
+        result = infer_roboflow(input.image_url, ROBOFLOW_API_KEY)
+        boxes = result.get("predictions", [])
 
-    for pred in boxes:
-        area = pred["width"] * pred["height"]
-        label = pred["class"]
-        areas_by_class[label] += area
+        label_count = defaultdict(int)
+        for pred in boxes:
+            label_count[pred["class"]] += 1
 
-    total_area = sum(areas_by_class.values())
-    if total_area == 0:
-        return {"labels": [], "composition": [], "total_area": 0}
+        predictions = [
+            {"label": label, "count": count}
+            for label, count in label_count.items()
+        ]
 
-    composition = [
-        {
-            "label": label,
-            "percentage": round((area / total_area) * 100, 2),
-            "area": round(area, 2)
-        }
-        for label, area in areas_by_class.items()
-    ]
+        return {"predictions": predictions}
 
-    return {
-        "labels": list(areas_by_class.keys()),
-        "composition": sorted(composition, key=lambda x: -x["percentage"]),
-        "total_area": round(total_area, 2)
-    }
+    except Exception as e:
+        return {"error": str(e)}
+
+# --- Waste composition (as before)
 @app.post("/wastecomposition")
 def waste_composition_api(input: ImageInput):
     try:
-        return get_waste_composition_from_roboflow(
-            image_url=input.image_url,
-            api_key=ROBOFLOW_API_KEY
-        )
+        result = infer_roboflow(input.image_url, ROBOFLOW_API_KEY)
+        boxes = result.get("predictions", [])
+
+        areas_by_class = defaultdict(float)
+        for pred in boxes:
+            area = pred["width"] * pred["height"]
+            label = pred["class"]
+            areas_by_class[label] += area
+
+        total_area = sum(areas_by_class.values())
+        if total_area == 0:
+            return {"labels": [], "composition": [], "total_area": 0}
+
+        composition = [
+            {
+                "label": label,
+                "percentage": round((area / total_area) * 100, 2),
+                "area": round(area, 2)
+            }
+            for label, area in areas_by_class.items()
+        ]
+
+        return {
+            "labels": list(areas_by_class.keys()),
+            "composition": sorted(composition, key=lambda x: -x["percentage"]),
+            "total_area": round(total_area, 2)
+        }
+
     except Exception as e:
         return {"error": str(e)}
