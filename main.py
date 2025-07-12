@@ -49,8 +49,14 @@ def classify_waste_types(input: ImageInput):
         result = infer_roboflow(input.image_url, ROBOFLOW_API_KEY)
         boxes = result.get("predictions", [])
 
-        # Collect unique labels
-        labels = sorted(set(pred["class"] for pred in boxes))
+        # Filter out generic/ambiguous labels like "trash"
+        labels = sorted(
+            set(
+                pred["class"]
+                for pred in boxes
+                if pred["class"].lower() not in EXCLUDED_LABELS
+            )
+        )
 
         return {"labels": labels}
 
@@ -85,7 +91,7 @@ def waste_composition_api(input: ImageInput):
         ]
 
         return {
-            "labels": list(areas_by_class.keys()),
+            "labels": [entry["label"] for entry in composition],
             "composition": sorted(composition, key=lambda x: -x["percentage"]),
             "total_area": round(total_area, 2)
         }
