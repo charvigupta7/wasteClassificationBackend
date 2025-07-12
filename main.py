@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 load_dotenv() 
 ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
 
+EXCLUDED_LABELS = {"mixed", "trash", "mixed trash"}
+
 app = FastAPI()
 
 class ImageInput(BaseModel):
@@ -85,6 +87,7 @@ def waste_composition_api(input: ImageInput):
                 "area": round(area, 2)
             }
             for label, area in areas_by_class.items()
+            if label.lower() not in EXCLUDED_LABELS
         ]
 
         return {
