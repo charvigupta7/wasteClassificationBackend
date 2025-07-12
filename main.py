@@ -49,16 +49,10 @@ def classify_waste_types(input: ImageInput):
         result = infer_roboflow(input.image_url, ROBOFLOW_API_KEY)
         boxes = result.get("predictions", [])
 
-        label_count = defaultdict(int)
-        for pred in boxes:
-            label_count[pred["class"]] += 1
+        # Collect unique labels
+        labels = sorted(set(pred["class"] for pred in boxes))
 
-        predictions = [
-            {"label": label, "count": count}
-            for label, count in label_count.items()
-        ]
-
-        return {"predictions": predictions}
+        return {"labels": labels}
 
     except Exception as e:
         return {"error": str(e)}
