@@ -49,34 +49,37 @@ def classify_waste_types(input: ImageInput):
 @app.post("/wastecomposition")
 def waste_composition_api(input: ImageInput):
     try:
+        # Call Roboflow and get bounding boxes
         result = infer_roboflow(input.image_url, ROBOFLOW_API_KEY)
         boxes = result.get("predictions", [])
 
+        # Accumulate area by class label
         areas_by_class = defaultdict(float)
         for pred in boxes:
-            area = pred["width"] * pred["height"]
             label = pred["class"]
+            area = pred["width"] * pred["height"]
             areas_by_class[label] += area
 
+        # Calculate total area covered by all detected objects
         total_area = sum(areas_by_class.values())
         if total_area == 0:
             return {"labels": [], "percentages": []}
 
-        composition = [
-            {
-                "label": label,
-                "percentage": round((area / total_area) * 100, 2)
-            }
-            for label, area in areas_by_class.items()
-        ]
+        # Build composition: label + percentage area
+        labels = []
+        percentages = []
+        for label, area in areas_by_class.items():
+            labels.append(label)
+            percentages.append(round((area / total_area) * 100, 2))
 
         return {
-            "labels": [entry["label"] for entry in composition],
-            "percentages": [entry["percentage"] for entry in composition]
+            "labels": labels,
+            "percentages": percentages
         }
 
     except Exception as e:
         return {"error": str(e)}
+
         
 # @app.post("/wastecomposition")
 # def waste_composition_api(input: ImageInput):
