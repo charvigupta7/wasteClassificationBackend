@@ -64,6 +64,7 @@ def classify_waste_types(input: ImageInput):
         return {"error": str(e)}
 
 # --- Waste composition (as before)
+
 @app.post("/wastecomposition")
 def waste_composition_api(input: ImageInput):
     try:
@@ -74,27 +75,60 @@ def waste_composition_api(input: ImageInput):
         for pred in boxes:
             area = pred["width"] * pred["height"]
             label = pred["class"]
-            areas_by_class[label] += area
+            if label.lower() not in EXCLUDED_LABELS:
+                areas_by_class[label] += area
 
         total_area = sum(areas_by_class.values())
         if total_area == 0:
-            return {"labels": [], "composition": [], "total_area": 0}
+            return {"labels": [], "percentages": []}
 
         composition = [
             {
                 "label": label,
-                "percentage": round((area / total_area) * 100, 2),
-                "area": round(area, 2)
+                "percentage": round((area / total_area) * 100, 2)
             }
             for label, area in areas_by_class.items()
-            if label.lower() not in EXCLUDED_LABELS
         ]
 
         return {
             "labels": [entry["label"] for entry in composition],
-            "composition": sorted(composition, key=lambda x: -x["percentage"]),
-            "total_area": round(total_area, 2)
+            "percentages": [entry["percentage"] for entry in composition]
         }
 
     except Exception as e:
         return {"error": str(e)}
+        
+# @app.post("/wastecomposition")
+# def waste_composition_api(input: ImageInput):
+#     try:
+#         result = infer_roboflow(input.image_url, ROBOFLOW_API_KEY)
+#         boxes = result.get("predictions", [])
+
+#         areas_by_class = defaultdict(float)
+#         for pred in boxes:
+#             area = pred["width"] * pred["height"]
+#             label = pred["class"]
+#             areas_by_class[label] += area
+
+#         total_area = sum(areas_by_class.values())
+#         if total_area == 0:
+#             return {"labels": [], "composition": [], "total_area": 0}
+
+#         composition = [
+#             {
+#                 "label": label,
+#                 "percentage": round((area / total_area) * 100, 2),
+#                 "area": round(area, 2)
+#             }
+#             for label, area in areas_by_class.items()
+#             if label.lower() not in EXCLUDED_LABELS
+#         ]
+
+#         return {
+#             "labels": [entry["label"] for entry in composition],
+#             "composition": sorted(composition, key=lambda x: -x["percentage"]),
+#             "total_area": round(total_area, 2)
+#         }
+
+#     except Exception as e:
+#         return {"error": str(e)}
