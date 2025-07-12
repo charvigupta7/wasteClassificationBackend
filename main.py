@@ -1,20 +1,13 @@
 from fastapi import FastAPI
 from pydantic import BaseModel, model_validator
 import requests
-from PIL import Image
-import io
-import torch
-import torch.nn as nn
-from torchvision import models, transforms
-from typing import List, Dict, Union, Optional
 from collections import defaultdict
+from typing import List, Dict, Union, Optional
 import os
 from dotenv import load_dotenv
 
-load_dotenv() 
+load_dotenv()
 ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
-
-EXCLUDED_LABELS = {"mixed", "trash", "mixed trash"}
 
 app = FastAPI()
 
@@ -28,13 +21,10 @@ class ImageInput(BaseModel):
             raise ValueError("Either 'predictions' or 'image_url' must be provided.")
         return values
 
-# --- Roboflow waste composition function
+# --- Roboflow waste detection helper
 def infer_roboflow(image_url: str, api_key: str):
     endpoint = f"https://detect.roboflow.com/taco-trash-annotations-in-context/16?api_key={api_key}"
-
-    response = requests.get(image_url)
-    image_bytes = response.content
-
+    image_bytes = requests.get(image_url).content
     upload_response = requests.post(
         endpoint,
         files={"file": image_bytes},
@@ -42,29 +32,20 @@ def infer_roboflow(image_url: str, api_key: str):
     )
     return upload_response.json()
 
-# --- Classify waste types (just labels, no area calc)
+# --- /classify: Return all labels detected (including "trash", etc.)
 @app.post("/classify")
 def classify_waste_types(input: ImageInput):
     try:
         result = infer_roboflow(input.image_url, ROBOFLOW_API_KEY)
         boxes = result.get("predictions", [])
 
-        # Filter out generic/ambiguous labels like "trash"
-        labels = sorted(
-            set(
-                pred["class"]
-                for pred in boxes
-                if pred["class"].lower() not in EXCLUDED_LABELS
-            )
-        )
-
+        labels = sorted(set(pred["class"] for pred in boxes))
         return {"labels": labels}
 
     except Exception as e:
         return {"error": str(e)}
 
-# --- Waste composition (as before)
-
+# --- /wastecomposition: Include all waste types in composition
 @app.post("/wastecomposition")
 def waste_composition_api(input: ImageInput):
     try:
@@ -75,8 +56,7 @@ def waste_composition_api(input: ImageInput):
         for pred in boxes:
             area = pred["width"] * pred["height"]
             label = pred["class"]
-            if label.lower() not in EXCLUDED_LABELS:
-                areas_by_class[label] += area
+            areas_by_class[label] += area
 
         total_area = sum(areas_by_class.values())
         if total_area == 0:
